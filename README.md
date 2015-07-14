@@ -1,80 +1,112 @@
-# GraphpostgresQL -- a graph interface to relational data
+# GraphQL + PostGIS
 
-GraphpostgresQL is inspired by Facebook's [`graphql`][graphql]. By using table
-introspection, GraphpostgresQL is able to follow foreign keys and index into
-complex datatypes like `json`, `jsonb` and `hstore`.
+Experiment with GraphQL, PostGIS, and OSM data
 
-[graphql]: https://www.npmjs.com/package/graphql
+Very much based on Jason Dusek's <a href="https://github.com/solidsnack/GraphpostgresQL">Graphpostgresql</a>
 
+## Install Prerequisites
 
-# A Proof of Concept
+Install PostGIS and <a href="http://wiki.openstreetmap.org/wiki/Osm2pgsql">Osm2pgsql</a>. On my machine, I had to install osm2pgsql with
+a special parameter to include protocol buffers.
 
-GraphpostgresQL is alpha quality and has undergone neither extensive
-optimization nor comprehensive testing. To use it for production workloads
-would needlessly tempt fate.
+Download an OSM PBF file (find some at <a href="https://mapzen.com/data/metro-extracts">Metro Extracts</a>)
 
+## Set up Database
 
-# Install GraphpostgresQL
+Import an OSM PBF extract file into PostGIS database named "osm":
 
-Using `psql`, load the `graphql` schema file:
-
-```sql
-\i graphql.sql
+```bash
+initdb pg_data
+postgres -D pg_data &
+createdb osm
+psql -d osm -c "CREATE EXTENSION postgis;"
+psql -d osm -c "CREATE EXTENSION postgis_topology;"
+osm2pgsql -s -d osm import.osm.pbf
 ```
 
-All definitions are created under the `graphql` schema. GraphpostgresQL
-doesn't load any extensions or alter the `search_path`. If an older version of
-GraphpostgresQL is loaded, the new installation will overwrite it.
+You need to have primary keys in your data to use GraphQL. OSM2PGSQL doesn't do this automatically, because
+a few items will have repeated invalid, negative osm_ids. Remove them before setting the primary key.
 
+```bash
+psql -d osm
+DELETE FROM planet_osm_point WHERE osm_id < 0;
+ALTER TABLE planet_osm_point ADD PRIMARY KEY (osm_id);
+DELETE FROM planet_osm_line WHERE osm_id < 0;
+ALTER TABLE planet_osm_line ADD PRIMARY KEY (osm_id);
+DELETE FROM planet_osm_polygon WHERE osm_id < 0;
+ALTER TABLE planet_osm_polygon ADD PRIMARY KEY (osm_id);
+DELETE FROM planet_osm_roads WHERE osm_id < 0;
+ALTER TABLE planet_osm_roads ADD PRIMARY KEY (osm_id);
+```
 
-# Using GraphpostgresQL
+Load the graphql schema file:
 
-To generate a query, use `graphql.to_sql(text)`:
+```bash
+psql -d osm -c "\i graphql.sql"
+```
+
+## Make queries
+
+Here's a sample query looking up the id of all points:
 
 ```sql
-SELECT graphql.to_sql($$
-  user("f3411edc-e1d0-452a-bc19-b42c0d5a0e36") {
-    full_name,
-    friendship
+SELECT graphql.run($$
+  planet_osm_point { id }
+$$);
+```
+
+Now to show the usefulness of GraphQL:
+
+When the user clicks on a restaurant and I know the OSM id is 560983277, then I can query the database
+for the tags which are relevant to a restaurant in OSM data:
+
+```sql
+SELECT graphql.run($$
+  planet_osm_point("560983277") {
+    amenity,
+    cuisine,
+    internet_access,
+    website,
+    opening_hours
   }
 $$);
 ```
 
-Which should result in something like:
+If your OSM data extract didn't have some of these tags, it might not have the columns and fail. Just
+remove them from the query!
+
+Because you enabled PostGIS, you should be able to return the GeoJSON of a field:
+
+SELECT graphql.run($$
+  planet_osm_point("560983277") {
+    name,
+    ST_As_GeoJSON(way)
+  }
+$$);
+
+## Debug queries
+
+For any query, use to_sql to see the SQL which you would be running:
 
 ```sql
-SELECT to_json("sub/2") AS "user"
-  FROM "user",
-       LATERAL (
-         SELECT json_agg("user") AS friendship
-           FROM "user"
-           JOIN friendship ON (("user".id) = (friendship.second))
-          WHERE (friendship.first)
-              = ('f3411edc-e1d0-452a-bc19-b42c0d5a0e36'::uuid)
-       ) AS "sub/1",
-       LATERAL (
-         SELECT "user".full_name, "sub/1".friendship
-       ) AS "sub/2"
- WHERE (("user".id) = ('f3411edc-e1d0-452a-bc19-b42c0d5a0e36'::uuid))
+SELECT graphql.to_sql($$
+  planet_osm_point {
+    name,
+    amenity
+  }
+$$);
 ```
 
-To run a query, use `graphql.run(text)` instead of `graphql.to_sql(text)`.
-
-
-# Removing GraphpostgresQL
-
-It's easy to remove GraphpostgresQL:
+Responds with:
 
 ```sql
-DROP SCHEMA IF EXISTS graphql CASCADE;
-```
+to_sql | SELECT json_agg("sub/1") AS planet_osm_point
+       |   FROM planet_osm_point,
+       |        LATERAL (
+       |          SELECT planet_osm_point.id
+       |        ) AS "sub/1"
+ ```
 
+## License
 
-# Roadmap
-
-In **GraphpostgresQL64**, we'll introduce expanded selectors (nested selection
-in JSON columns, for example), an interface that accepts keyword parameters,
-and the ability to store and re-execute queries.
-
-In **GraphpostgresQL3D**, we'll introduce a PL/V8 implementation, with
-extensible parsing, hooks and overall more modular implementation.
+GraphpostgresQL and this repo use the open source PostgresQL license.

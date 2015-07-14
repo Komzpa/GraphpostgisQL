@@ -188,8 +188,13 @@ BEGIN
   END IF;
   FOR sub IN SELECT * FROM graphql.parse_many(body) LOOP
     IF sub.predicate IS NOT NULL THEN
-      RAISE EXCEPTION 'Unhandled nested selector %(%)',
+      IF sub.selector NOT IN ('ST_AsGeoJSON') THEN
+        RAISE EXCEPTION 'Unhandled nested selector %(%)',
                       sub.selector, sub.predicate;
+      ELSE
+        sub.modifier = sub.selector;
+        sub.selector = sub.predicate;
+      END IF;
     END IF;
     SELECT cols.col INTO col
       FROM graphql.cols(tab) WHERE cols.col = sub.selector;
@@ -209,7 +214,11 @@ BEGIN
                              fks[1].other, fks[1].refs[1], tab, col);
         cols := cols || format('%I.%I', 'sub/'||cardinality(subselects), col);
       ELSE
-        cols := cols || format('%s.%I', tab, col);
+        IF sub.modifier IS NULL THEN
+          cols := cols || format('%s.%I', tab, col);
+        ELSE
+          cols := cols || format('%s(%s.%I)', sub.modifier, tab, col);
+        END IF;
       END IF;
     WHEN FOUND AND sub.body IS NOT NULL THEN             -- Index into a column
       subselects := subselects || graphql.to_sql(sub.selector,
@@ -389,7 +398,7 @@ END
 $$ LANGUAGE plpgsql STABLE;
 
 CREATE FUNCTION parse_many(expr text)
-RETURNS TABLE (selector text, predicate text, body text) AS $$
+RETURNS TABLE (selector text, predicate text, modifier text, body text) AS $$
 DECLARE
   whitespace_and_commas text = E'^[ \t\n,]*';
 BEGIN
