@@ -75,14 +75,58 @@ $$);
 If your OSM data extract didn't have some of these tags, it might not have the columns and fail. Just
 remove them from the query!
 
-Because you enabled PostGIS, you should be able to return the GeoJSON of a field:
+Thanks to PostGIS, you should be able to return the GeoJSON of a field:
 
+```sql
 SELECT graphql.run($$
   planet_osm_point("560983277") {
     name,
-    ST_As_GeoJSON(way)
+    ST_AsGeoJSON(way)
   }
 $$);
+```
+
+This returns one JSON record, with the name, and the GeoJSON escaped in the "st_asgeojson" field:
+
+```
+{"name":"Bukkateen","st_asgeojson":"{\"type\":\"Point\",\"coordinates\":[831049.01,1010592.89]}"}
+```
+
+Most PostGIS functions with two arguments are accepted in the modified GraphQL set.
+
+Not all of them make sense in the current state - this ST_Buffer query returns PostGIS geometry and not GeoJSON:
+
+```sql
+SELECT graphql.run($$
+  planet_osm_polygon("213537579") {
+    operator,
+    ST_Buffer(way, 10.11)
+  }
+$$);
+```
+
+If you are using non-OSM PostGIS data, you could compare multiple fields in this record, for example you could
+return a calculated distance:
+
+```sql
+SELECT graphql.run($$
+  geos("geo_id") {
+    field,
+    ST_Distance(startpt, endpt)
+  }
+$$);
+```
+
+I'm trying to get this example working, but the parser is concerned about POLYGON(())
+
+```sql
+SELECT graphql.run($$
+  planet_osm_polygon("213537579") {
+    operator,
+    ST_Within(way, ST_GeomFromText('POLYGON((806850.5 1004992.93, 809346.74 1006557.97, 807892.59 1005245.2, 806850.5 1004992.93))'))
+  }
+$$);
+```
 
 ## Debug queries
 

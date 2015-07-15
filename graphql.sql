@@ -188,12 +188,12 @@ BEGIN
   END IF;
   FOR sub IN SELECT * FROM graphql.parse_many(body) LOOP
     IF sub.predicate IS NOT NULL THEN
-      IF sub.selector NOT IN ('ST_AsGeoJSON') THEN
+      IF sub.selector NOT IN ('ST_AsGeoJSON', 'ST_Buffer', 'ST_Distance', 'ST_Equals', 'ST_Disjoint', 'ST_Intersects', 'ST_Touches', 'ST_Crosses', 'ST_Within', 'ST_Overlaps', 'ST_Contains', 'ST_Covers', 'ST_CoveredBy', 'ST_Intersects', 'ST_Centroid', 'ST_Area', 'ST_Length', 'ST_PointOnSurface', 'ST_ConvexHull', 'ST_Intersection', 'ST_Shift_Longitude', 'ST_SymDifference', 'ST_Difference', 'ST_Union', 'ST_AsText', 'ST_AsBinary', 'ST_SRID', 'ST_Dimension', 'ST_Envelope', 'ST_IsEmpty', 'ST_IsSimple', 'ST_IsClosed', 'ST_IsRing', 'ST_NumGeometries', 'ST_GeometryN', 'ST_NumPoints', 'ST_ExteriorRing', 'ST_NumInteriorRings', 'ST_NumInteriorRing', 'ST_InteriorRingN', 'ST_EndPoint', 'ST_StartPoint', 'GeometryType', 'ST_Geometry_Type', 'ST_X', 'ST_Y', 'ST_Z', 'ST_M') THEN
         RAISE EXCEPTION 'Unhandled nested selector %(%)',
                       sub.selector, sub.predicate;
       ELSE
         sub.modifier = sub.selector;
-        sub.selector = sub.predicate;
+        sub.selector = split_part(sub.predicate, ',', 1);
       END IF;
     END IF;
     SELECT cols.col INTO col
@@ -217,7 +217,11 @@ BEGIN
         IF sub.modifier IS NULL THEN
           cols := cols || format('%s.%I', tab, col);
         ELSE
-          cols := cols || format('%s(%s.%I)', sub.modifier, tab, col);
+          IF split_part(sub.predicate, ',', 2) != '' THEN
+            cols := cols || format('%s(%s.%I, %s)', sub.modifier, tab, col, SUBSTR(sub.predicate, 2 + CHAR_LENGTH(sub.selector)));
+          ELSE
+            cols := cols || format('%s(%s.%I)', sub.modifier, tab, col);
+          END IF;
         END IF;
       END IF;
     WHEN FOUND AND sub.body IS NOT NULL THEN             -- Index into a column
