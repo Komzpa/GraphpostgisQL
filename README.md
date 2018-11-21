@@ -21,21 +21,16 @@ postgres -D pg_data &
 createdb osm
 psql -d osm -c "CREATE EXTENSION postgis;"
 psql -d osm -c "CREATE EXTENSION postgis_topology;"
-osm2pgsql -s -d osm import.osm.pbf
+osm2pgsql -s -G -d osm import.osm.pbf
 ```
 
-You need to have primary keys in your data to use GraphQL. OSM2PGSQL doesn't do this automatically, because
-a few items will have repeated invalid, negative osm_ids. Remove them before setting the primary key.
+You need to have primary keys in your data to use GraphQL. OSM2PGSQL doesn't do this automatically.
 
 ```bash
 psql -d osm
-DELETE FROM planet_osm_point WHERE osm_id < 0;
 ALTER TABLE planet_osm_point ADD PRIMARY KEY (osm_id);
-DELETE FROM planet_osm_line WHERE osm_id < 0;
 ALTER TABLE planet_osm_line ADD PRIMARY KEY (osm_id);
-DELETE FROM planet_osm_polygon WHERE osm_id < 0;
 ALTER TABLE planet_osm_polygon ADD PRIMARY KEY (osm_id);
-DELETE FROM planet_osm_roads WHERE osm_id < 0;
 ALTER TABLE planet_osm_roads ADD PRIMARY KEY (osm_id);
 ```
 
